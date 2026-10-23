@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: secure-transmission
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: STREAM_KEY
+        generateValue: true

@@ -1,0 +1,3 @@
+# Copy to relay.properties (it is git-ignored) for local builds.
+RELAY_URL=https://your-app.onrender.com
+STREAM_KEY=your-stream-key

@@ -1,0 +1,9 @@
+{
+  "name": "secure-transmission-relay",
+  "version": "1.0.0",
+  "description": "Live relay: phone pushes JPEG frames, dashboard receives them. Nothing is stored.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" }
+}

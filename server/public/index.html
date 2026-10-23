@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Transmission — Live Dashboard</title>
+<style>
+  :root { --bg:#0e1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e; --accent:#3fb950; --danger:#f85149; --warn:#d29922; --border:#30363d; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f8fa; --panel:#fff; --text:#1f2328; --muted:#57606a; --accent:#1a7f37; --danger:#cf222e; --warn:#9a6700; --border:#d0d7de; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; min-height:100vh; padding:24px; }
+  .container { max-width:960px; margin:0 auto; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  p.sub { color:var(--muted); margin-top:0; font-size:14px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; margin-bottom:20px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input[type=password], input[type=text] { flex:1; min-width:220px; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:14px; }
+  button { padding:10px 18px; border-radius:6px; border:1px solid var(--border); background:var(--accent); color:#04260f; font-weight:600; cursor:pointer; font-size:14px; }
+  button.secondary { background:transparent; color:var(--text); }
+  .badges { display:flex; gap:16px; flex-wrap:wrap; margin-top:12px; font-size:13px; color:var(--muted); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--muted); margin-right:6px; }
+  .dot.ok { background:var(--accent); } .dot.bad { background:var(--danger); } .dot.wait { background:var(--warn); }
+  .stream-wrap { background:#000; border-radius:10px; overflow:hidden; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; min-height:300px; }
+  #stream { width:100%; display:none; }
+  .placeholder { color:var(--muted); padding:60px 20px; text-align:center; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Secure Transmission — Live Dashboard</h1>
+  <p class="sub">Live relay · frames are forwarded in real time and never stored</p>
+
+  <div class="panel">
+    <div class="row">
+      <input type="password" id="keyInput" placeholder="Stream key" autocomplete="off" />
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" class="secondary">Disconnect</button>
+    </div>
+    <div class="badges">
+      <span><span class="dot" id="dServer"></span><span id="tServer">Server: not connected</span></span>
+      <span><span class="dot" id="dPhone"></span><span id="tPhone">Phone: —</span></span>
+      <span id="tFps">— fps</span>
+      <span id="tRes"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="stream-wrap">
+      <canvas id="stream"></canvas>
+      <div id="placeholder" class="placeholder">Enter the stream key and click Connect.<br>Then start streaming on the phone.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button id="snapshotBtn" class="secondary">Save Snapshot</button>
+      <button id="fullscreenBtn" class="secondary">Fullscreen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $('stream'), ctx = canvas.getContext('2d');
+let ws = null, wantConnected = false, retryTimer = null, frames = 0, pending = null, drawing = false;
+
+try { $('keyInput').value = localStorage.getItem('st_key') || ''; } catch (e) {}
+
+function setServer(text, cls) { $('tServer').textContent = 'Server: ' + text; $('dServer').className = 'dot ' + (cls || ''); }
+function setPhone(text, cls)  { $('tPhone').textContent  = 'Phone: ' + text;  $('dPhone').className  = 'dot ' + (cls || ''); }
+
+async function drawLatest() {
+  if (drawing) return;
+  drawing = true;
+  while (pending) {
+    const buf = pending; pending = null;          // always skip to the newest frame
+    try {
+      const bmp = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
+      if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+        canvas.width = bmp.width; canvas.height = bmp.height;
+        $('tRes').textContent = bmp.width + '×' + bmp.height;
+      }
+      ctx.drawImage(bmp, 0, 0); bmp.close();
+      canvas.style.display = 'block'; $('placeholder').style.display = 'none';
+      frames++;
+    } catch (e) { /* bad frame, skip */ }
+  }
+  drawing = false;
+}
+
+function connect() {
+  const key = $('keyInput').value.trim();
+  if (!key) { setServer('enter the stream key', 'bad'); return; }
+  try { localStorage.setItem('st_key', key); } catch (e) {}
+  wantConnected = true;
+  clearTimeout(retryTimer);
+  if (ws) { ws.onclose = null; ws.close(); }
+  setServer('connecting…', 'wait');
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host + '/view?key=' + encodeURIComponent(key));
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => setServer('connected', 'ok');
+  ws.onmessage = ev => {
+    if (typeof ev.data === 'string') {
+      const m = JSON.parse(ev.data);
+      if (m.type === 'status') {
+        m.publisher ? setPhone('streaming', 'ok') : setPhone('waiting for phone…', 'wait');
+      }
+    } else { pending = ev.data; drawLatest(); }
+  };
+  ws.onclose = () => {
+    setServer(wantConnected ? 'disconnected — retrying…' : 'not connected', wantConnected ? 'bad' : '');
+    setPhone('—');
+    if (wantConnected) retryTimer = setTimeout(connect, 2000);
+  };
+  ws.onerror = () => {};
+}
+
+function disconnect() {
+  wantConnected = false; clearTimeout(retryTimer);
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  setServer('not connected'); setPhone('—');
+  canvas.style.display = 'none'; $('placeholder').style.display = 'block';
+}
+
+setInterval(() => { $('tFps').textContent = frames + ' fps'; frames = 0; }, 1000);
+
+$('connectBtn').onclick = connect;
+$('disconnectBtn').onclick = disconnect;
+$('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+$('fullscreenBtn').onclick = () => canvas.requestFullscreen && canvas.requestFullscreen();
+$('snapshotBtn').onclick = () => {
+  if (canvas.style.display === 'none') return;
+  const a = document.createElement('a');
+  a.download = 'snapshot-' + Date.now() + '.png';
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+};
+if ($('keyInput').value) connect();
+</script>
+</body>
+</html>
