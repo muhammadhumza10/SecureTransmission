@@ -1,8 +1,0 @@
-<resources>
-    <string name="app_name">Secure Transmission</string>
-    <string name="notification_channel_name">Secure Transmission</string>
-    <string name="notification_title">Secure Transmission</string>
-    <string name="notification_text">Secure Transmission is running</string>
-    <string name="start_streaming">Start Streaming</string>
-    <string name="stop_streaming">Stop Streaming</string>
-</resources>
