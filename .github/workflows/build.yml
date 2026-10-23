@@ -23,6 +23,9 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build debug APK
+        env:
+          RELAY_URL: ${{ secrets.RELAY_URL }}
+          STREAM_KEY: ${{ secrets.STREAM_KEY }}
         run: gradle assembleDebug --no-daemon --stacktrace --info
 
       - name: Upload APK
